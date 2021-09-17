@@ -1,63 +1,65 @@
-
-import time,socket,sys
+import socket, time, sys
 from multiprocessing import Process
 
+HOST = ''
+end_host = 'www.google.com'
+PORT = 8001
+end_port = 80
+BUFFER_SIZE = 2048
 
-HOST=""
-ext_host='www.google.com'
-PORT=8001
-ext_port=80
-BUFFER_SIZE=2048
+def handle_request(conn, addr, proxy_end):
+    data = conn.recv(BUFFER_SIZE)
 
+    proxy_end.sendall(data)
 
-#TODO:get_remote_ip
-	
-def get_remote_ip(host):
-	print("Getting IP for {host}")
-	try:
-		remote_ip=socket.gethostbyname(host)
-	except socket.gaierror:
-		print("Host name invalid")
-		sys.exit()
+    proxy_end.shutdown(socket.SHUT_WR)
+    
+    end_data = b""
 
-	print(f'IP address for {host} is {remote_ip}')
-	return remote_ip
+    while True:
+        data = proxy_end.recv(BUFFER_SIZE)
+        if not data:
+            break
+        end_data += data
+    
+    print(f"Receiving Data from {end_host}")
 
-
-#TODO: handle_request
-
-def handle_request(connection,address):
-	print(f'connected by {address}')
-	data=connection.recv(BUFFER_SIZE)
-	connection.sendall(data)
-	connection.shutdown(socket.SHUT_RDWR)
-	connection.close()
-
+    time.sleep(0.5)
+    conn.sendall(end_data)
+    
+    print("Sent Data Back to", addr)
 
 
 def main():
+    
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as proxy_start:
-		proxy_start.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-		proxy_start.bind((HOST,PORT))
-		proxy_start.listen(10)
-		print("Starting Proxy Server on Port 8001")
-		
-		while True:
-			
-			# Receive connection from client
-			connection, address = proxy_start.accept()
-			print("Receiving Connection from:", address)
-			remote_ip=get_remote_ip(ext_host)
+        server_socket.bind((HOST,PORT))
+        print("Starting tcp server on port 8001")
 
-			p=Process(target=handle_request,args=(connection,address))
-			p.daemon=True
-			p.start()
-			print("Start process" ,p)
-			proxy_end.shutdown(socket.SHUT_WR)
+        server_socket.listen(2)
 
+        while True:
 
-			connection.close()
-				
-if __name__  == "__main__":
-	main()	
+            connection, address = server_socket.accept()
+            print("Receiving connection from:", address)
+            
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as proxy_end:
+                print(f"Connecting to {end_host}")
+
+                proxy_end.connect((end_host, end_port))
+                print(f"Connected to {end_host} and Sending Data")
+
+                # Start a process for each incoming connection with the correct arguments
+                p = Process(target=handle_request, args=(connection, address, proxy_end))
+                p.daemon = True
+                p.start()
+                print("Start new process", p)
+                
+
+            connection.close()
+
+if __name__ == '__main__':
+    main()
